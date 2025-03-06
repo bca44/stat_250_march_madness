@@ -1,0 +1,213 @@
+---
+title: "March Madness, idk"
+author: Micah Pew, Benjamin Andreasen
+format: 
+  html: 
+    embed-resources: true
+editor: source
+---
+
+```{r}
+#| output: FALSE
+library(tidyverse)
+library(rvest)
+library(stringr)
+library(scales)
+```
+
+## Import
+- We took our data from 2 different sources. The first was gathered and published on Kaggle, the second we gathered ourselves from **TeamRankings.**
+
+- Our original import used this series of functions to scrape from **TeamRankings**:
+
+```{r}
+#| eval: FALSE
+
+# vector of season_end_dates (season starting in 1999 through season starting in 2023)
+dates_08_to_23 <- c(
+  '04-09-2024', '04-04-2023', '04-05-2022', '04-06-2021', '03-12-2020',
+  '04-09-2019', '04-03-2018', '04-04-2017', '04-05-2016',
+  '04-06-2015', '04-07-2014', '04-08-2013', '04-02-2012',
+  '04-04-2011', '04-03-2010', '04-06-2009', '04-07-2008'
+  )
+
+generate_df <- function( base_url, season_end_dates ) {
+  # returns single df containing all data from the tables at base_url and for the seasons in season_end_dates
+  
+    construct_urls <- function( base_url , season_end_dates ) {
+      # construct URLs for the given base URL and season end dates
+      
+      return(
+        lapply( season_end_dates , function( season_end_date ) {
+          paste0( base_url , '?date=' , season_end_date ) } )
+      )
+    }
+    
+    scrape_html_table <- function( url ) {
+      # returns html table contained at given url
+      
+      return(
+        read_html( url ) |>
+          html_element( 'table' ) |>
+          html_table() |>
+          as_tibble()
+      )
+    }
+    
+    clean_list <- function( df ) {
+      colnames( df )[ c( 3 , 8 ) ] <- c( "November-December" , "January-April" )
+      df[ , 3 : 8 ] <- lapply( df[ ,  3 : 8 ] , as.numeric )
+      return( df )
+    }
+  
+  constructed_urls <- construct_urls( base_url , season_end_dates ) # list of urls: the given base_url with all the '?date=' endings added
+  
+  scraped_list <- lapply( constructed_urls , scrape_html_table ) # list of lists: each one has the contents of the html table found at one of the above urls
+  
+  cleaned_list <- lapply( scraped_list , clean_list ) # same list of lists: col names and types cleaned
+  
+  desired_df <- bind_rows( cleaned_list ) # df: df made from list of lists
+  
+  desired_df <- desired_df |>
+    mutate( Season = rep( season_end_dates , sapply( scraped_list , nrow ) ) ) |>
+    mutate( Season = as.double( substr( Season , 7 , 10 ) ) ) # add Season column
+  
+  return( desired_df )
+}
+
+# example usage
+ppg_df <- generate_df( 'https://www.teamrankings.com/ncaa-basketball/stat/points-per-game' , dates_08_to_23 )
+
+```
+
+- However, as is best practice, we have already done so and saved the dataframes locally. We found it convenient to combine data from both **Kaggle** and **TeamRankings** externally. So, now we can just read in our clean, pretty data:
+```{r}
+#| output: FALSE
+
+seed_results <- read_csv( 'generated_dfs/Seed_Results.csv' )
+away_neutral <- read_csv( 'generated_dfs/Away_Neutral_Stats.csv' )
+home <- read_csv( 'generated_dfs/Home_Stats.csv' )
+conf_results <- read_csv( 'generated_dfs/Conference_Results.csv' )
+scoring_margins <- read_csv( 'generated_dfs/scoring_margins.csv' )
+```
+
+## Wrangling
+- Wrangling was partially done at Import, with the web scraping functions, but Micah had to do a lot of work after the fact.
+For example, the Kaggle data had an entire season's worth of seeding missing, so Micah had to add them by hand.
+
+## EDA
+
+# Plots
+
+```{r}
+#Create a scatterplot showing relationship between seed and how likely they are to win a championship
+ggplot(seed_results, aes(x = Seed, y = `CHAMP%`))+
+  geom_point(color = "darkblue")+
+  labs(
+    title = "Each Seed's Likelihood of Winning March Madness From 2008-2024",
+    x = "Seed",
+    y = "Percent Chance of Winning the Championship"
+  )
+```
+
+```{r}
+#Create a series of plots to show the relationship between how teams perform at away/neutral
+#site games druing the regular season and how they perform in the tournament
+ggplot(away_neutral, aes(x = WinPercent, y = Outscore, color = Round))+
+  geom_point()+
+  labs(
+    title = "Relationship Between Average Points Outscored at Away/Neutral Games
+      and Tournament Performance From 2008-2024",
+    x = "Win Percentage",
+    y = "Average Amount of Points a Team Outscores their Opponent"
+  )+
+  facet_wrap(~Round)
+```
+
+```{r}
+#Create a series of plots to show the relationship between how teams perform at home
+#site games druing the regular season and how they perform in the tournament
+ggplot(home, aes(x = WinPercent, y = Outscore, color = Round))+
+  geom_point()+
+  labs(
+    title = "Relationship Between Average Points Outscored at Home Games
+      and Tournament Performance From 2008-2024",
+    x = "Win Percentage",
+    y = "Average Amount of Points a Team Outscores their Opponent"
+  )+
+  facet_wrap(~Round)
+```
+
+```{r}
+#Create scatterplot for conference win percentage
+ggplot(conf_results, aes(x = Conference, y = WinPercent))+
+  geom_point(color = "darkblue")+
+  scale_x_discrete(guide = guide_axis(angle = 45))+
+  scale_y_continuous(
+    labels = label_percent(scale = 100)
+  ) +
+  labs(
+    title = "Win Percentage by Differing Conferences",
+    x = "Conference",
+    y = "Win Percentage"
+  )
+```
+
+```{r}
+#Create scatterplot for conference win probability
+ggplot(conf_results, aes(x = Conference, y = ProbChamp))+
+  geom_point(color = "darkblue")+
+  scale_x_discrete(guide = guide_axis(angle = 45))+
+  labs(
+    title = "Probability of Winning March Maddness by Differing Conferences",
+    x = "Conference",
+    y = "Win Probablity"
+  )
+```
+
+```{r}
+advantages <- scoring_margins |>
+  left_join( home , by = c( "Season" = "Year" , "Team" ) ) |>
+  rename( "HomeAdv" = "Home" , "AwayAdv" = "Away" ) |>
+  select( Season, TeamID, Team, Seed, Round,  HomeAdv, AwayAdv, WinPercent )
+```
+
+```{r}
+advantages |> ggplot(aes(
+  HomeAdv,
+  WinPercent)) +
+  geom_point(color = advantages$Round) +
+  labs(
+    title = "March Madness Win Percentage by Average Regular Season Homefield Point Advantage",
+    x = "Point Advantage",
+    y = "Win Percentage"
+  )
+```
+```{r}
+advantages |> ggplot(aes(
+  AwayAdv,
+  WinPercent)) +
+  geom_point(color = advantages$Round) +
+  labs(
+    title = "March Madness Win Percentage by Average Regular Season Point Advantage Away or at Nuetral Sites",
+    x = "Point Advantage",
+    y = "Win Percentage"
+  )
+```
+
+# ANOVA
+
+Moving on from EDA, we conducted an AONVA test on our **advantages** dataset. Our Null Hypothesis: WinPercent is a result of HomeAdv.
+
+Here we set up and run the model:
+
+```{r}
+home_adv_model <- aov( WinPercent ~ HomeAdv , data = advantages )
+
+summary( home_adv_model )
+```
+
+Given the low p-value, we reject the null hypothesis and conclude that the two factors are related in some way.
+
+## Reflect
+This data does not do a good job predicting March Madness success. At least, not the limited number of combinations which we explored. March Madness success is the result of many factors, meaning a large-scale, multi-factor ML model would be appropriate for such an analysis. We will return to such an analysis after we learn to do so.However, we can advise that one wanting to predict March Madness success would look at a team's average regular-season point advantage, both home and away, as a possible easy-to-track predictive variable.
